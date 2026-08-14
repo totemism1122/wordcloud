@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 워드클라우드</title>
+    
+    <!-- 외부 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <!-- Firebase SDK 로드 (간편한 사용을 위해 호환성 버전 사용) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            text-align: center;
+            background-color: #f4f7f6;
+            padding: 20px;
+        }
+        .controls {
+            margin: 20px auto;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 600px;
+        }
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 60%;
+        }
+        button {
+            padding: 10px 15px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-danger { background-color: #dc3545; }
+        
+        #canvas-container {
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 10px;
+            width: 800px;
+            height: 500px;
+            max-width: 100%;
+        }
+        /* 스마트폰 화면에서는 캔버스를 숨기고 입력창만 크게 보이게 설정 */
+        @media (max-width: 768px) {
+            #canvas-container, #qr-btn { display: none; }
+            input[type="text"] { width: 100%; margin-bottom: 10px; }
+        }
+        #qr-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            display: none;
+        }
+        #qrcode { margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <h1>✨ 실시간 우리 반 워드클라우드</h1>
+    
+    <div class="controls">
+        <input type="text" id="wordInput" placeholder="생각나는 단어를 입력하세요" onkeypress="handleKeyPress(event)">
+        <button onclick="addWord()">입력</button>
+        <button id="qr-btn" onclick="toggleQR()">QR 코드 보기</button>
+        <button class="btn-danger" onclick="resetCloud()">화면 초기화(교사용)</button>
+    </div>
+
+    <!-- QR 코드가 표시될 영역 -->
+    <div id="qr-container">
+        <h3>스마트폰으로 접속하세요!</h3>
+        <div id="qrcode"></div>
+    </div>
+
+    <!-- 워드클라우드가 그려질 캔버스 -->
+    <div id="canvas-container">
+        <canvas id="wordCanvas" width="800" height="500"></canvas>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 여기에 선생님의 Firebase 설정을 붙여넣으세요.
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "API_KEY",
+            authDomain: "PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "PROJECT_ID",
+            storageBucket: "PROJECT_ID.appspot.com",
+            messagingSenderId: "SENDER_ID",
+            appId: "APP_ID"
+        };
+        
+        // Firebase 초기화
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let wordCounts = {};
+
+        // 2. Firebase에서 실시간으로 데이터 가져오기
+        db.ref('words').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                wordCounts = data;
+            } else {
+                wordCounts = {}; // 데이터가 없으면 비움
+            }
+            drawWordCloud(); // 데이터가 변경될 때마다 캔버스 갱신
+        });
+
+        // 3. 단어 입력 시 Firebase에 저장
+        function addWord() {
+            const inputElement = document.getElementById('wordInput');
+            let word = inputElement.value.trim();
+
+            if (word === "") {
+                alert("단어를 입력해주세요.");
+                return;
+            }
+
+            // Firebase의 키(key)로는 사용할 수 없는 특수문자 제거
+            word = word.replace(/[.#$\[\]]/g, '');
+
+            // Firebase Transaction을 사용하여 동시 입력 시 빈도수 안전하게 증가
+            const wordRef = db.ref('words/' + word);
+            wordRef.transaction((currentValue) => {
+                return (currentValue || 0) + 1;
+            });
+
+            inputElement.value = ""; 
+            inputElement.focus();
+        }
+
+        // 엔터키 입력 지원
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') addWord();
+        }
+
+        // 워드클라우드 그리기 함수
+        function drawWordCloud() {
+            const canvas = document.getElementById('wordCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // 기존 그림 지우기
+
+            const list = Object.keys(wordCounts).map(word => {
+                return [word, 20 + (wordCounts[word] * 10)]; 
+            });
+
+            if (list.length === 0) return; // 데이터가 없으면 그리지 않음
+
+            WordCloud(canvas, {
+                list: list,
+                fontFamily: 'Malgun Gothic, sans-serif',
+                weightFactor: 1,
+                color: 'random-dark',
+                backgroundColor: '#ffffff',
+                rotateRatio: 0
+            });
+        }
+
+        // 4. 데이터 초기화
+        function resetCloud() {
+            if (confirm("정말로 모든 단어를 지우시겠습니까?")) {
+                db.ref('words').remove(); // Firebase 데이터 전체 삭제
+            }
+        }
+
+        // 5. QR 코드 생성
+        let qrGenerated = false;
+        function toggleQR() {
+            const qrContainer = document.getElementById('qr-container');
+            if (qrContainer.style.display === "flex") {
+                qrContainer.style.display = "none";
+            } else {
+                qrContainer.style.display = "flex";
+                if (!qrGenerated) {
+                    const currentUrl = window.location.href;
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: currentUrl,
+                        width: 150,
+                        height: 150
+                    });
+                    qrGenerated = true;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
