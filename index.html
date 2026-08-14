@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     
-    <!-- Firebase SDK 로드 (간편한 사용을 위해 호환성 버전 사용) -->
+    <!-- Firebase SDK 로드 -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -57,11 +57,13 @@
             height: 500px;
             max-width: 100%;
         }
-        /* 스마트폰 화면에서는 캔버스를 숨기고 입력창만 크게 보이게 설정 */
+        
+        /* 모바일(스마트폰) 화면 설정: 캔버스, QR버튼, 초기화버튼 숨김 */
         @media (max-width: 768px) {
-            #canvas-container, #qr-btn { display: none; }
+            #canvas-container, #qr-btn, #reset-btn { display: none; }
             input[type="text"] { width: 100%; margin-bottom: 10px; }
         }
+        
         #qr-container {
             margin-top: 20px;
             display: flex;
@@ -80,16 +82,15 @@
         <input type="text" id="wordInput" placeholder="생각나는 단어를 입력하세요" onkeypress="handleKeyPress(event)">
         <button onclick="addWord()">입력</button>
         <button id="qr-btn" onclick="toggleQR()">QR 코드 보기</button>
-        <button class="btn-danger" onclick="resetCloud()">화면 초기화(교사용)</button>
+        <!-- 초기화 버튼에 id="reset-btn" 추가 -->
+        <button id="reset-btn" class="btn-danger" onclick="resetCloud()">화면 초기화(교사용)</button>
     </div>
 
-    <!-- QR 코드가 표시될 영역 -->
     <div id="qr-container">
         <h3>스마트폰으로 접속하세요!</h3>
         <div id="qrcode"></div>
     </div>
 
-    <!-- 워드클라우드가 그려질 캔버스 -->
     <div id="canvas-container">
         <canvas id="wordCanvas" width="800" height="500"></canvas>
     </div>
@@ -109,24 +110,21 @@
            measurementId: "G-LCHPNBVW0W"
         };
         
-        // Firebase 초기화
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
         let wordCounts = {};
 
-        // 2. Firebase에서 실시간으로 데이터 가져오기
         db.ref('words').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 wordCounts = data;
             } else {
-                wordCounts = {}; // 데이터가 없으면 비움
+                wordCounts = {}; 
             }
-            drawWordCloud(); // 데이터가 변경될 때마다 캔버스 갱신
+            drawWordCloud(); 
         });
 
-        // 3. 단어 입력 시 Firebase에 저장
         function addWord() {
             const inputElement = document.getElementById('wordInput');
             let word = inputElement.value.trim();
@@ -136,10 +134,8 @@
                 return;
             }
 
-            // Firebase의 키(key)로는 사용할 수 없는 특수문자 제거
             word = word.replace(/[.#$\[\]]/g, '');
 
-            // Firebase Transaction을 사용하여 동시 입력 시 빈도수 안전하게 증가
             const wordRef = db.ref('words/' + word);
             wordRef.transaction((currentValue) => {
                 return (currentValue || 0) + 1;
@@ -149,22 +145,20 @@
             inputElement.focus();
         }
 
-        // 엔터키 입력 지원
         function handleKeyPress(event) {
             if (event.key === 'Enter') addWord();
         }
 
-        // 워드클라우드 그리기 함수
         function drawWordCloud() {
             const canvas = document.getElementById('wordCanvas');
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height); // 기존 그림 지우기
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
 
             const list = Object.keys(wordCounts).map(word => {
                 return [word, 20 + (wordCounts[word] * 10)]; 
             });
 
-            if (list.length === 0) return; // 데이터가 없으면 그리지 않음
+            if (list.length === 0) return; 
 
             WordCloud(canvas, {
                 list: list,
@@ -176,14 +170,12 @@
             });
         }
 
-        // 4. 데이터 초기화
         function resetCloud() {
             if (confirm("정말로 모든 단어를 지우시겠습니까?")) {
-                db.ref('words').remove(); // Firebase 데이터 전체 삭제
+                db.ref('words').remove(); 
             }
         }
 
-        // 5. QR 코드 생성
         let qrGenerated = false;
         function toggleQR() {
             const qrContainer = document.getElementById('qr-container');
